@@ -53,6 +53,20 @@ static func _build(n: String) -> Px:
 		"ruin": return _t_ruin()
 		"rock": return _t_rock()
 		"bonewall": return _t_bonewall()
+		"crypt_wall": return _t_crypt_wall(false, 21)
+		"crypt_niche": return _t_crypt_wall(true, 22)
+		"crypt_ceil": return _t_crypt_ceil()
+		"wet_floor": return _t_wet_floor()
+		"water": return _t_water()
+		"cliff": return _t_cliff()
+		"timber": return _t_timber()
+		"masonry": return _t_masonry()
+		"temple_wall": return _t_temple_wall()
+		"gallery_wall": return _t_gallery_wall()
+		"lab_wall": return _t_lab_wall()
+		"stained_glass": return _t_stained_glass()
+		"lab_floor": return _t_lab_floor()
+		"railing": return _t_railing()
 		"castle": return _t_castle()
 		"wood": return _t_wood()
 		"books": return _t_books()
@@ -98,6 +112,19 @@ static func _build(n: String) -> Px:
 		"exit": return _exit_door()
 		"banner": return _banner()
 		"skull_pike": return _skull_pike()
+		"statue": return _statue()
+		"crone": return _crone()
+		"vat": return _vat()
+		"throne": return _throne()
+		"chalice": return _chalice()
+		"chandelier": return _chandelier()
+		"bench": return _bench()
+		"cauldron": return _cauldron()
+		"cross_a": return _cross_wood(0)
+		"cross_c": return _cross_wood(1)
+		"cross_sun": return _cross_sun()
+		"shrine": return _shrine()
+		"barrel": return _barrel()
 		# ------------------------------------------------ ефекти
 		"arrow": return _arrow()
 		"fireball": return _fireball()
@@ -307,6 +334,413 @@ static func _t_bark() -> Px:
 		var y := p.rng.randi() % 32
 		p.line(x, y, x, y + p.rng.randi_range(4, 12), C("#0e0a08"))
 		p.p(x + 1, y + 2, C("#2c2219"))
+	return p
+
+# ---- затоплені крипти (Катакомби)
+
+const MOSS := ["#24381f", "#2d4527", "#3b5a30"]
+
+## Мокрий камінь з мохом; niche=true — поховальна ніша з черепом і кістками.
+static func _t_crypt_wall(niche: bool, seed_v: int) -> Px:
+	var p := Px.new(32, 32, C("#0c110f"), seed_v)
+	var cols := [C("#2b322e"), C("#303733"), C("#262d29"), C("#343b36"), C("#29302b")]
+	var y := 0
+	var row := 0
+	for rh in [8, 7, 9, 8]:
+		var x := -((row * 5) % 9)
+		while x < 32:
+			var sw := p.rng.randi_range(7, 13)
+			var c: Color = cols[p.rng.randi() % cols.size()].lightened(p.rng.randf_range(-0.04, 0.04))
+			p.rect(x + 1, y + 1, sw - 1, rh - 1, c)
+			p.rect(x + 1, y + 1, sw - 1, 1, c.lightened(0.12))      # вологий відблиск зверху
+			p.rect(x + 1, y + rh - 1, sw - 1, 1, c.darkened(0.25))
+			x += sw
+		y += rh
+		row += 1
+	p.grime(0.05, 0.5)
+	if niche:
+		var nc := C("#050706")
+		p.rect(8, 13, 16, 13, nc)
+		p.ell(16, 13, 8, 5, nc)
+		p.rect(7, 26, 18, 2, C("#3a423d"))                          # кам'яна полиця
+		var bone := C("#8a8a72")
+		p.ell(13, 22, 3, 3, bone)                                     # череп
+		p.rect(11, 23, 5, 2, bone)
+		p.p(12, 22, nc); p.p(14, 22, nc); p.p(13, 24, nc)
+		p.line(17, 25, 23, 24, bone.darkened(0.2))                   # кістки
+		p.line(18, 23, 22, 25, bone.darkened(0.35))
+		p.rect(9, 25, 3, 1, bone.darkened(0.3))
+		for i in 6:                                                  # павутина й мох по краях ніші
+			p.p(8 + p.rng.randi() % 16, 9 + p.rng.randi() % 3, C(MOSS[p.rng.randi() % 3]))
+	# потьоки води
+	for i in 4:
+		var sx := p.rng.randi() % 32
+		var ln := p.rng.randi_range(6, 18)
+		var sy := p.rng.randi() % 14
+		for k in ln:
+			p.p(sx, sy + k, Color(0.02, 0.05, 0.05, 0.45))
+		p.p(sx, sy + ln, C("#6a7c78"))
+	# мох: густіше внизу
+	for i in 120:
+		var mx := p.rng.randi() % 32
+		var my := p.rng.randi() % 32
+		if p.rng.randf() < 0.25 + 0.75 * float(my) / 32.0:
+			p.p(mx, my, C(MOSS[p.rng.randi() % 3]))
+	return p
+
+static func _t_crypt_ceil() -> Px:
+	var p := _t_crypt_wall(false, 23)
+	p.shade_side(0.5)
+	for i in 8:                                                      # краплі, що збираються на стелі
+		p.p(p.rng.randi() % 32, p.rng.randi() % 32, C("#5f716d"))
+	return p
+
+static func _t_wet_floor() -> Px:
+	var p := Px.new(32, 32, C("#0d1211"), 24)
+	for gy in 2:
+		for gx in 2:
+			var off := 4 if gy == 1 else 0
+			var c := C("#1f2624").lightened(p.rng.randf_range(-0.04, 0.05))
+			p.rect((gx * 16 + off) % 32 + 1, gy * 16 + 1, 15, 15, c)
+	p.grime(0.05, 0.5)
+	for i in 5:                                                      # калюжі з відблиском
+		var cx := p.rng.randi() % 32
+		var cy := p.rng.randi() % 32
+		p.ell(cx, cy, p.rng.randi_range(2, 4), p.rng.randi_range(1, 2), C("#2c3836"))
+		p.p(cx, cy, C("#4d5f5b"))
+	for i in 30:
+		p.p(p.rng.randi() % 32, p.rng.randi() % 32, C(MOSS[p.rng.randi() % 2]))
+	return p
+
+## Мілка темна вода з брижами (напівпрозора).
+static func _t_water() -> Px:
+	var p := Px.new(32, 32, Color(0.05, 0.12, 0.11, 0.62), 25)
+	for y in 32:
+		for x in 32:
+			var k := 0.5 + 0.5 * sin(x * 0.4 + sin(y * 0.3) * 2.0)
+			p.img.set_pixel(x, y, Color(0.08 + 0.04 * k, 0.19 + 0.06 * k, 0.18 + 0.06 * k, 0.55 + 0.1 * k))
+	for i in 12:                                                     # світлі брижі
+		var cx := p.rng.randi() % 32
+		var cy := p.rng.randi() % 32
+		var r := p.rng.randi_range(2, 5)
+		for a in 10:
+			var ang := -0.6 + a * 0.12
+			p.p(cx + int(cos(ang) * r), cy + int(sin(ang) * r * 0.5), Color(0.55, 0.75, 0.72, 0.8))
+	return p
+
+## Висока моховита скеля ущелини: вертикальні тріщини, уступи, мох на виступах.
+static func _t_cliff() -> Px:
+	var p := Px.new(32, 32, Color.BLACK, 26)
+	for y in 32:
+		for x in 32:
+			var n := sin(x * 0.55 + sin(y * 0.21) * 2.3) * 0.5 + sin(y * 0.9 + x * 0.13) * 0.25
+			var c := C("#2a312e").lerp(C("#3b4440"), 0.5 + 0.5 * n)
+			p.img.set_pixel(x, y, c.lightened(p.rng.randf_range(-0.04, 0.04)))
+	for i in 5:                                                      # вертикальні тріщини
+		var x := p.rng.randi() % 32
+		var y := p.rng.randi() % 32
+		for k in p.rng.randi_range(8, 20):
+			x = (x + p.rng.randi_range(-1, 1) + 32) % 32
+			p.p(x, (y + k) % 32, C("#121614"))
+			p.p((x + 1) % 32, (y + k) % 32, C("#48524d"))
+	for i in 4:                                                      # уступи з мохом зверху
+		var y := p.rng.randi() % 32
+		var x0 := p.rng.randi() % 32
+		var ln := p.rng.randi_range(6, 14)
+		for k in ln:
+			var xx := (x0 + k) % 32
+			p.p(xx, (y + 1) % 32, C("#161b18"))
+			p.p(xx, y, C(MOSS[1 + p.rng.randi() % 2]))
+			if p.rng.randf() < 0.5:
+				p.p(xx, (y - 1 + 32) % 32, C(MOSS[2]))
+	for i in 90:                                                     # плями моху
+		p.p(p.rng.randi() % 32, p.rng.randi() % 32, C(MOSS[p.rng.randi() % 3]))
+	return p
+
+# ---- Мертве місто: фахверк, кладка, храм
+
+## Фахверкова стіна: тинькування й темні балки, віконце з ґраткою.
+static func _t_timber() -> Px:
+	var p := Px.new(32, 32, C("#6f6656"), 27)
+	p.grime(0.06, 0.7)
+	for i in 40:                                                     # облуплений тиньк
+		p.p(p.rng.randi() % 32, p.rng.randi() % 32, C("#4c463c"))
+	var wood := C("#2a1d14")
+	p.rect(0, 30, 32, 2, wood)                                       # балка перекриття (раз на поверх)
+	p.rect(0, 0, 2, 30, wood)                                        # стояк
+	p.line(2, 29, 11, 18, wood, 1)                                   # розкіс
+	p.rect(19, 9, 7, 9, C("#14100c"))                                # вікно
+	p.rect(22, 9, 1, 9, wood); p.rect(19, 13, 7, 1, wood)
+	p.rect(18, 18, 9, 1, C("#3a2a1c"))                               # підвіконня
+	p.rect(20, 10, 2, 2, C("#3a3424"))                               # тьмяний відблиск у шибці
+	return p
+
+## Велика кладка міських мурів: теплий сірий камінь, мох на верхніх гранях.
+static func _t_masonry() -> Px:
+	var p := Px.new(32, 32, C("#1d1b17"), 28)
+	var cols := [C("#5a564c"), C("#4f4b42"), C("#615c51"), C("#56524a")]
+	for row in 4:
+		var off := (row % 2) * 8
+		for col in 3:
+			var x := off + col * 16 - 8
+			var c: Color = cols[p.rng.randi() % cols.size()].lightened(p.rng.randf_range(-0.05, 0.03))
+			p.rect(x + 1, row * 8 + 1, 15, 7, c)
+			p.rect(x + 1, row * 8 + 1, 15, 1, c.lightened(0.12))
+			p.rect(x + 1, row * 8 + 7, 15, 1, c.darkened(0.2))
+			for k in 4:
+				p.p(x + 1 + p.rng.randi() % 15, row * 8 + 1, C(MOSS[p.rng.randi() % 3]))
+	p.grime(0.06, 0.5)
+	return p
+
+## Стіна храму: дрібна тепла цегла й арочна ніша з різьбленою рамкою.
+static func _t_temple_wall() -> Px:
+	var p := Px.new(32, 32, C("#2a2016"), 29)
+	for row in 8:
+		var off := (row % 2) * 3
+		for col in 6:
+			var x := off + col * 6 - 3
+			p.rect(x + 1, row * 4 + 1, 5, 3, C("#6a5236").lightened(p.rng.randf_range(-0.08, 0.06)))
+	p.grime(0.05, 0.5)
+	var frame := C("#3a2c1c")
+	p.rect(7, 9, 18, 21, frame)
+	p.ell(16, 10, 9, 6, frame)
+	p.rect(9, 11, 14, 19, C("#8a6c44"))                              # освітлена глибина ніші
+	p.ell(16, 11, 7, 5, C("#8a6c44"))
+	for y in range(11, 30):                                          # світло знизу, тінь угорі
+		for x in range(9, 23):
+			var c := p.get_c(x, y)
+			if c == C("#8a6c44"):
+				p.p(x, y, c.darkened(0.45 * (1.0 - float(y - 6) / 24.0)))
+	for k in range(9, 30, 2):                                        # різьблення рамки
+		p.p(8, k, C("#5a4630")); p.p(23, k, C("#5a4630"))
+	p.rect(7, 29, 18, 2, C("#4a3a26"))
+	return p
+
+## Кам'яна статуя: постать у мантії з високим шоломом і посохом-свічником.
+static func _statue() -> Px:
+	var p := Px.new(32, 48, Color(0, 0, 0, 0), 30)
+	var st := C("#8c877a")
+	var dk := C("#5c584e")
+	p.poly(PackedVector2Array([Vector2(10, 18), Vector2(22, 18), Vector2(25, 47), Vector2(7, 47)]), st)   # мантія
+	p.rect(12, 18, 8, 6, st)
+	p.ell(16, 13, 4, 5, st)                                          # голова
+	p.poly(PackedVector2Array([Vector2(12, 11), Vector2(20, 11), Vector2(16, 2)]), st)                    # шолом
+	p.line(16, 2, 17, 0, dk)
+	p.rect(14, 13, 4, 2, dk)                                         # затінене обличчя
+	for x in [11, 14, 18, 21]:                                       # складки
+		p.line(x, 24, x - 1 if x < 16 else x + 1, 46, dk)
+	p.line(6, 10, 6, 47, C("#4a3a26"))                              # посох
+	p.ell(6, 9, 1.5, 1.5, C("#ffd27a"))                             # вогник
+	p.rect(6, 20, 5, 2, st)                                          # рука
+	p.shade_side(0.35)
+	p.outline(C("#24221d"))
+	return p
+
+static func _barrel() -> Px:
+	var p := Px.new(16, 20, Color(0, 0, 0, 0), 31)
+	p.ell(8, 10, 7, 9.5, C("#4a3220"))
+	for y in 20:
+		for x in 16:
+			if p.get_c(x, y).a > 0.5 and x % 3 == 0:
+				p.p(x, y, C("#3a2616"))
+	p.rect(1, 4, 14, 2, C("#2a2a2a")); p.rect(1, 14, 14, 2, C("#2a2a2a"))
+	p.shade_side(0.3)
+	p.outline()
+	return p
+
+## Ярус аркової галереї: колони, темна арка з теплим ліхтарем, балюстрада й карниз.
+## Повторюється кожні 2 м по висоті — високі стіни стають багатоярусними.
+static func _t_gallery_wall() -> Px:
+	var p := Px.new(32, 32, C("#4a4a52"), 32)
+	p.grime(0.05, 0.6)
+	var dark := C("#0e0d10")
+	p.rect(6, 7, 20, 18, dark)                                       # арка
+	p.ell(16, 8, 10, 6, dark)
+	p.rect(8, 9, 16, 16, C("#1c1612"))                              # глибина галереї
+	p.ell(16, 10, 8, 5, C("#1c1612"))
+	p.rect(14, 12, 4, 5, C("#e0a850"))                               # ліхтар
+	p.rect(15, 13, 2, 3, C("#fff0c0"))
+	p.rect(15, 10, 2, 2, C("#3a2a1a"))
+	for x in [1, 2, 3, 28, 29, 30]:                                   # колони
+		p.rect(x, 4, 1, 22, C("#55555c"))
+	p.rect(0, 4, 5, 2, C("#62626a")); p.rect(27, 4, 5, 2, C("#62626a"))   # капітелі
+	p.rect(0, 25, 32, 1, C("#1a1a1e"))                               # балюстрада
+	for x in range(1, 32, 3):
+		p.rect(x, 26, 1, 3, C("#2a2a30"))
+	p.rect(0, 29, 32, 3, C("#4a4a52"))                               # карниз з орнаментом
+	for x in range(0, 32, 4):
+		p.p(x + 1, 30, C("#2a2a30")); p.p(x + 2, 31, C("#2a2a30"))
+	p.rect(0, 0, 32, 2, C("#2c2c33"))
+	return p
+
+# ---- лабораторія алхіміка
+
+const FLASKS := ["#6fe08a", "#e0a850", "#9a6ad8", "#5ac8d8", "#d85a4a"]
+
+## Ярус лабораторії: зеленкуватий камінь, ніша з полицею колб, мідні труби, балюстрада.
+static func _t_lab_wall() -> Px:
+	var p := Px.new(32, 32, C("#2c3532"), 34)
+	p.grime(0.05, 0.6)
+	var dark := C("#0b0f0d")
+	p.rect(6, 8, 20, 16, dark)                                       # ніша
+	p.ell(16, 9, 10, 5, dark)
+	for shelf in [15, 22]:                                           # дві полиці з колбами
+		p.rect(7, shelf, 18, 1, C("#4a3624"))
+		var x := 8
+		while x < 24:
+			var col := C(FLASKS[p.rng.randi() % FLASKS.size()])
+			var fh := p.rng.randi_range(2, 4)
+			p.rect(x, shelf - fh, 2, fh, col)
+			p.p(x, shelf - fh, col.lightened(0.4))
+			p.p(x, shelf - fh - 1, C("#8a9a96"))                    # шийка колби
+			x += p.rng.randi_range(3, 4)
+	p.rect(0, 3, 32, 2, C("#9a5e30")); p.rect(0, 3, 32, 1, C("#d08a50"))   # мідна труба
+	for x in range(2, 32, 8):
+		p.rect(x, 2, 2, 4, C("#6a4020"))                             # хомути
+	p.rect(1, 5, 2, 20, C("#7a4a26")); p.rect(1, 5, 1, 20, C("#b0703a"))  # вертикальна труба
+	p.rect(0, 25, 32, 1, C("#141a18"))                               # балюстрада
+	for x in range(1, 32, 3):
+		p.rect(x, 26, 1, 3, C("#202a26"))
+	p.rect(0, 29, 32, 3, C("#3c4844"))
+	return p
+
+## Шахова плитка лабораторії з плямами реактивів.
+static func _t_lab_floor() -> Px:
+	var p := Px.new(32, 32, Color.BLACK, 35)
+	for gy in 2:
+		for gx in 2:
+			var c := C("#26302c") if (gx + gy) % 2 == 0 else C("#3a4640")
+			p.rect(gx * 16, gy * 16, 16, 16, c)
+	p.grime(0.05, 0.6)
+	for i in 3:                                                      # плями
+		p.ell(p.rng.randi() % 32, p.rng.randi() % 32, 2.5, 1.5, Color(0.3, 0.7, 0.35, 0.35))
+	p.rect(0, 0, 32, 1, C("#141a18")); p.rect(0, 16, 32, 1, C("#141a18"))
+	p.rect(0, 0, 1, 32, C("#141a18")); p.rect(16, 0, 1, 32, C("#141a18"))
+	return p
+
+## Скляний чан із зеленою рідиною, бульбашками й темною постаттю всередині.
+static func _vat() -> Px:
+	var p := Px.new(24, 48, Color(0, 0, 0, 0), 36)
+	var metal := C("#4a4a52")
+	p.rect(2, 2, 20, 4, metal); p.rect(2, 2, 20, 1, C("#7a7a84"))   # кришка
+	p.rect(1, 42, 22, 6, metal); p.rect(1, 42, 22, 1, C("#7a7a84"))  # основа
+	p.rect(3, 6, 18, 36, Color(0.15, 0.45, 0.25, 0.85))             # рідина
+	p.rect(3, 6, 18, 4, Color(0.4, 0.8, 0.5, 0.9))                  # світліший верх
+	p.ell(12, 26, 4, 7, Color(0.05, 0.12, 0.08, 0.9))                # гомункул
+	p.ell(12, 18, 2.5, 2.5, Color(0.05, 0.12, 0.08, 0.9))
+	for i in 9:                                                      # бульбашки
+		p.p(5 + p.rng.randi() % 14, 10 + p.rng.randi() % 30, Color(0.7, 1.0, 0.75, 0.9))
+	p.rect(3, 6, 1, 36, Color(0.8, 1.0, 0.9, 0.6))                  # відблиск скла
+	p.rect(20, 6, 1, 36, Color(0.1, 0.2, 0.15, 0.9))
+	p.rect(0, 14, 24, 1, metal); p.rect(0, 30, 24, 1, metal)         # обручі
+	p.outline(C("#101414"))
+	return p
+
+## Алхімічний стіл: реторта, колби, перегінний куб із трубкою.
+static func _bench() -> Px:
+	var p := Px.new(32, 24, Color(0, 0, 0, 0), 37)
+	var wood := C("#4a3220")
+	p.rect(1, 13, 30, 3, wood); p.rect(1, 13, 30, 1, C("#6a4a30"))
+	p.rect(3, 16, 2, 8, wood); p.rect(27, 16, 2, 8, wood)
+	p.ell(8, 9, 4, 4, Color(0.6, 0.85, 0.5, 0.85))                  # реторта
+	p.line(11, 6, 18, 3, C("#8a9a96"))                               # трубка
+	p.rect(17, 3, 2, 6, C("#8a9a96"))
+	p.ell(18, 10, 3, 3, Color(0.85, 0.6, 0.3, 0.85))                # колба з бурштином
+	for i in 3:
+		var x := 23 + i * 2
+		p.rect(x, 9 - i, 1, 4 + i, C(FLASKS[(i + 2) % FLASKS.size()]))
+	p.rect(6, 12, 5, 1, C("#e0661e"))                                # пальник
+	p.outline(C("#120d0b"))
+	return p
+
+## Котел, у якому щось булькотить.
+static func _cauldron() -> Px:
+	var p := Px.new(24, 20, Color(0, 0, 0, 0), 38)
+	p.ell(12, 12, 10, 7, C("#1c1c20"))
+	p.ell(12, 7, 9, 2.5, C("#5ad070"))
+	for i in 5:
+		p.circ(5 + p.rng.randi() % 14, 6 + p.rng.randi() % 2, 1.2, C("#a8f0b0"))
+	p.rect(3, 6, 18, 1, C("#3a3a40"))
+	p.rect(5, 18, 2, 2, C("#1c1c20")); p.rect(17, 18, 2, 2, C("#1c1c20"))
+	p.outline(C("#080808"))
+	return p
+
+# ---- тронна зала
+
+## Вітраж: стрілчасте вікно з кольоровим склом і свинцевими перетинками.
+## Повторюється по висоті — стовпці вітражів на всю стіну.
+static func _t_stained_glass() -> Px:
+	var p := Px.new(32, 32, C("#2a2228"), 39)
+	p.grime(0.05, 0.6)
+	var glass := [C("#8a1c24"), C("#24408a"), C("#c8962c"), C("#5a2a7a"), C("#2a6a4a")]
+	var lead := C("#0c0a0c")
+	p.rect(8, 2, 16, 30, lead)
+	p.ell(16, 4, 8, 4, lead)
+	for y in range(3, 32, 3):                                        # шибки
+		for x in range(9, 23, 3):
+			p.rect(x, y, 2, 2, glass[(x / 3 + y / 3 + p.rng.randi() % 2) % glass.size()].lightened(0.15))
+	p.ell(16, 12, 4, 4, C("#e8c060"))                                 # «троянда» посередині
+	p.ring(16, 12, 4, 1, lead)
+	p.rect(15, 2, 2, 30, lead)                                        # середник
+	p.rect(6, 0, 2, 32, C("#3a3238")); p.rect(24, 0, 2, 32, C("#3a3238"))   # колонки рами
+	return p
+
+## Високий готичний трон: темне дерево, золото, червона подушка.
+static func _throne() -> Px:
+	var p := Px.new(32, 56, Color(0, 0, 0, 0), 40)
+	var wood := C("#2a1418")
+	var gold := C("#b08a3a")
+	p.rect(6, 4, 20, 34, wood)                                        # спинка
+	p.poly(PackedVector2Array([Vector2(6, 4), Vector2(16, -2), Vector2(26, 4)]), wood)
+	for x in [6, 25]:                                                 # шпилі
+		p.rect(x, 0, 1, 10, gold)
+	p.ell(16, 12, 5, 6, C("#5a0c14"))                                 # оксамит спинки
+	p.ring(16, 12, 5, 1, gold)
+	p.rect(2, 30, 28, 6, wood); p.rect(2, 30, 28, 1, gold)            # сидіння й підлокітники
+	p.rect(6, 32, 20, 3, C("#7a1018"))                                # подушка
+	p.rect(4, 36, 4, 18, wood); p.rect(24, 36, 4, 18, wood)           # ніжки
+	p.rect(2, 52, 28, 4, C("#1a0c10"))
+	p.ell(4, 30, 2, 2, gold); p.ell(28, 30, 2, 2, gold)
+	p.shade_side(0.3)
+	p.outline(C("#080406"))
+	return p
+
+## Розбита чаша алхіміка на пюпітрі (та, з якої принц «випив світанок»).
+static func _chalice() -> Px:
+	var p := Px.new(16, 24, Color(0, 0, 0, 0), 41)
+	var gold := C("#c8a040")
+	p.poly(PackedVector2Array([Vector2(3, 2), Vector2(13, 2), Vector2(10, 9), Vector2(6, 9)]), gold)
+	p.line(3, 2, 6, 5, Color(0, 0, 0, 0))                              # скол
+	p.rect(4, 3, 8, 2, C("#3a0a10"))                                  # залишки темного вина
+	p.rect(7, 9, 2, 6, gold)
+	p.rect(4, 14, 8, 2, gold)
+	p.rect(5, 16, 6, 8, C("#3a3238")); p.rect(5, 16, 6, 1, C("#5a525a"))   # пюпітр
+	p.p(4, 2, C("#fff0c0"))
+	p.outline(C("#080406"))
+	return p
+
+## Люстра-обруч зі свічками на ланцюгах.
+static func _chandelier() -> Px:
+	var p := Px.new(32, 24, Color(0, 0, 0, 0), 42)
+	var iron := C("#2a2426")
+	p.line(16, 0, 4, 14, iron); p.line(16, 0, 28, 14, iron); p.line(16, 0, 16, 14, iron)
+	p.rect(2, 14, 28, 3, iron)
+	for x in range(3, 30, 5):
+		p.rect(x, 10, 2, 4, C("#e8dcc0"))
+		p.rect(x, 8, 2, 2, C("#ffb84a"))
+	p.rect(14, 17, 4, 5, iron)
+	p.outline(C("#080406"))
+	return p
+
+## Кована балюстрада (прозора між прутами).
+static func _t_railing() -> Px:
+	var p := Px.new(32, 32, Color(0, 0, 0, 0), 33)
+	var iron := C("#242226")
+	p.rect(0, 0, 32, 3, C("#3a3236"))                                # поручень
+	p.rect(0, 29, 32, 3, iron)
+	for x in range(1, 32, 4):
+		p.rect(x, 3, 1, 26, iron)
+		p.ring(x + 2, 16, 2, 1, iron)                                 # завитки
 	return p
 
 static func _t_gate() -> Px:
@@ -678,6 +1112,75 @@ static func _cross() -> Px:
 	p.rect(7, 2, 3, 30, C("#2a1c12"))
 	p.rect(2, 8, 13, 3, C("#2a1c12"))
 	p.outline()
+	return p
+
+## Стара ворожка: згорблена постать у каптурі, з ціпком і віялом карт таро.
+static func _crone() -> Px:
+	var p := Px.new(32, 44, Color(0, 0, 0, 0), 64)
+	var cloak := C("#3a3330")
+	var cloak_hi := C("#524842")
+	p.poly(PackedVector2Array([Vector2(9, 14), Vector2(20, 10), Vector2(25, 18), Vector2(26, 43), Vector2(6, 43), Vector2(7, 24)]), cloak)
+	p.poly(PackedVector2Array([Vector2(9, 14), Vector2(20, 10), Vector2(18, 22), Vector2(9, 24)]), cloak_hi)   # згорблена спина
+	p.ell(12, 13, 5, 5, cloak)                                       # каптур
+	p.ell(10, 14, 2.5, 3, C("#140f0d"))                              # тінь під каптуром
+	p.p(9, 15, C("#c9b48a")); p.p(8, 16, C("#a8946c"))              # ніс і підборіддя
+	p.p(10, 13, C("#e8d9a0"))                                        # блиск ока
+	p.rect(5, 23, 4, 2, C("#8a7a64"))                                # кістлява рука
+	for i in 3:                                                      # віяло карт
+		var x := 1 + i * 2
+		p.rect(x, 18 - i, 3, 5, C("#d8c08a"))
+		p.rect(x, 18 - i, 3, 1, C("#8a2a1c"))
+	p.line(24, 20, 29, 43, C("#4a3624"))                             # ціпок
+	p.p(24, 19, C("#6a4e34"))
+	for x in range(8, 26, 3):                                        # обтріпаний поділ
+		p.p(x, 43, Color(0, 0, 0, 0))
+	p.shade_side(0.25)
+	p.outline(C("#120d0b"))
+	return p
+
+## Дерев'яний хрест: variant 0 — простий, 1 — з дашком і перекладиною знизу.
+static func _cross_wood(variant: int) -> Px:
+	var p := Px.new(16, 32, Color(0, 0, 0, 0), 60 + variant)
+	var w := C("#6a4a2c")
+	var hi := C("#8a6440")
+	p.rect(7, 3, 2, 29, w); p.rect(7, 3, 1, 29, hi)
+	p.rect(2, 9, 12, 2, w); p.rect(2, 9, 12, 1, hi)
+	if variant == 1:
+		p.line(3, 4, 8, 0, C("#3a2a1a")); p.line(8, 0, 13, 4, C("#3a2a1a"))   # дашок
+		p.rect(4, 17, 8, 1, w)                                                  # нижня перекладина
+		p.rect(6, 12, 4, 3, C("#c9b48a"))                                      # іконка
+	p.grime(0.08, 0.6)
+	p.outline(C("#1a120a"))
+	return p
+
+## Великий хрест із сонячним колом навколо перехрестя.
+static func _cross_sun() -> Px:
+	var p := Px.new(32, 48, Color(0, 0, 0, 0), 62)
+	var w := C("#7a5634")
+	var iron := C("#3a3632")
+	for a in 16:                                                     # промені
+		var ang := TAU * a / 16.0
+		p.line(16, 12, 16 + cos(ang) * 11, 12 + sin(ang) * 11, iron)
+	p.ring(16, 12, 7, 1.2, iron)
+	p.rect(14, 1, 4, 47, w); p.rect(14, 1, 1, 47, C("#9a7448"))
+	p.rect(5, 10, 22, 4, w); p.rect(5, 10, 22, 1, C("#9a7448"))
+	p.grime(0.08, 0.6)
+	p.outline(C("#1a120a"))
+	return p
+
+## Придорожня капличка-стовп з двосхилим дашком.
+static func _shrine() -> Px:
+	var p := Px.new(16, 48, Color(0, 0, 0, 0), 63)
+	var w := C("#5e4430")
+	p.rect(6, 14, 4, 34, w); p.rect(6, 14, 1, 34, C("#7e5e42"))
+	p.rect(3, 8, 10, 7, C("#4a3624"))                                # скринька
+	p.rect(5, 9, 6, 5, C("#1a120c"))
+	p.rect(7, 10, 2, 3, C("#c9b48a"))                                # фігурка
+	p.poly(PackedVector2Array([Vector2(1, 8), Vector2(15, 8), Vector2(8, 1)]), C("#2e221a"))   # дашок
+	p.line(8, 1, 8, -2, C("#3a3632"))
+	p.rect(7, 0, 2, 1, C("#3a3632"))
+	p.grime(0.08, 0.6)
+	p.outline(C("#1a120a"))
 	return p
 
 static func _flame() -> Px:

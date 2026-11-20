@@ -23,6 +23,10 @@ var _flow := PackedInt32Array()
 var _flow_t := 0.0
 var _leaving := false
 var grace := 4.5          # секунди спокою на старті локації
+var _tarot: Control = null
+var debug_menu: Control = null
+const DEBUG_MENU := preload("res://scripts/ui/debug_menu.gd")
+const TAROT_SCREEN := preload("res://scripts/ui/class_select.gd")
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -59,6 +63,10 @@ func _setup_env() -> void:
 	_env.fog_light_color = level.fog
 	_env.fog_density = level.fog_density
 	_env.fog_sky_affect = 1.0
+	if level.has("mist"):
+		_add_mist(level.mist)
+	if level.has("skylight"):
+		_add_skylight(level.skylight)
 	_env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	_env.glow_enabled = true
 	_env.glow_intensity = 0.7
@@ -73,9 +81,75 @@ func _setup_env() -> void:
 		var sun := DirectionalLight3D.new()
 		sun.light_color = level.get("sun", Color(0.5, 0.5, 0.6))
 		sun.light_energy = level.get("sun_energy", 0.3)
-		sun.rotation_degrees = Vector3(-55, 35, 0)
+		sun.rotation_degrees = level.get("sun_rot", Vector3(-55, 35, 0))
 		sun.shadow_enabled = true
 		level_root.add_child(sun)
+		if level.has("sun_disc"):
+			_add_sun_disc(sun, float(level.sun_disc))
+
+## Низька імла шаром над підлогою: об'ємний туман лише в межах коробки,
+## тому світло свічок дає ореоли, а вище голови повітря чисте.
+## mist = {"height": м, "density": 0..1, "color": Color}
+func _add_mist(m: Dictionary) -> void:
+	_env.volumetric_fog_enabled = true
+	_env.volumetric_fog_density = 0.0
+	_env.volumetric_fog_length = 40.0
+	var fv := FogVolume.new()
+	var hgt: float = m.get("height", 1.0)
+	fv.size = Vector3(builder.w * LevelBuilder.T, hgt * 2.0, builder.h * LevelBuilder.T)
+	# "y" — центр шару (напр. глибоко в безодні); за замовчуванням біля підлоги
+	fv.position = Vector3(builder.w * LevelBuilder.T * 0.5, m.get("y", 0.0), builder.h * LevelBuilder.T * 0.5)
+	var fm := FogMaterial.new()
+	fm.density = m.get("density", 0.3)
+	fm.albedo = m.get("color", Color(0.6, 0.7, 0.7))
+	fm.height_falloff = 1.5
+	if m.has("glow"):
+		# серпанок світиться сам — у безодні видно глибину
+		fm.emission = Color(m.color) * float(m.glow)
+	fm.edge_fade = 0.3
+	fv.material = fm
+	level_root.add_child(fv)
+
+## Диск сонця з сяйвом у небі (не зникає в тумані): "sun_disc" — розмір сяйва.
+func _add_sun_disc(sun: DirectionalLight3D, dist: float) -> void:
+	var dir := sun.global_transform.basis.z.normalized()   # звідки світить сонце
+	var center := Vector3(builder.w * LevelBuilder.T * 0.5, 0, builder.h * LevelBuilder.T * 0.5)
+	for layer in [[dist * 0.7, Color(1.0, 0.75, 0.45, 0.4)], [dist * 0.16, Color(1.0, 0.92, 0.75, 1.0)]]:
+		var q := MeshInstance3D.new()
+		var qm := QuadMesh.new()
+		qm.size = Vector2.ONE * float(layer[0])
+		q.mesh = qm
+		var m := StandardMaterial3D.new()
+		m.albedo_texture = Art.tex("glow")
+		m.albedo_color = layer[1]
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		m.disable_fog = true
+		m.no_depth_test = false
+		q.material_override = m
+		q.position = center + dir * 90.0   # у межах дальності камери (120 м)
+		q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		level_root.add_child(q)
+
+## Холодний промінь згори (крізь купол), у серпанку видно стовп світла.
+## skylight = {"color": Color, "energy": float, "angle": градуси, "fog": сила променя в серпанку}
+func _add_skylight(s: Dictionary) -> void:
+	var sl := SpotLight3D.new()
+	sl.light_color = s.get("color", Color(0.6, 0.7, 0.9))
+	sl.light_energy = s.get("energy", 6.0)
+	sl.spot_range = builder.ceil_y + 4.0
+	sl.spot_angle = s.get("angle", 28.0)
+	sl.spot_attenuation = 0.6
+	sl.shadow_enabled = true
+	sl.light_volumetric_fog_energy = s.get("fog", 1.0)
+	sl.position = Vector3(builder.w * LevelBuilder.T * 0.5, builder.ceil_y - 0.3, builder.h * LevelBuilder.T * 0.5)
+	if s.has("at"):
+		# промінь на конкретну клітинку (напр. на трон)
+		var at: Array = s.at
+		sl.position = Vector3((float(at[0]) + 0.5) * LevelBuilder.T, builder.ceil_y - 0.3, (float(at[1]) + 0.5) * LevelBuilder.T)
+	sl.rotation_degrees = Vector3(-90, 0, 0)
+	level_root.add_child(sl)
 
 func _apply_settings() -> void:
 	_env.adjustment_brightness = Settings.get_v("brightness")
@@ -118,6 +192,10 @@ func _spawn_entities() -> void:
 			g.add_to_group("gates")
 			level_root.add_child(g)
 			_gates[Vector2i(e.x, e.z)] = g
+		elif c == "N":
+			var cr: Interactable = preload("res://scripts/world/crone.gd").new()
+			cr.position = pos
+			level_root.add_child(cr)
 		elif c == "X":
 			var x: Interactable = preload("res://scripts/world/exit_door.gd").new()
 			x.locked = level.has("boss")
@@ -145,6 +223,13 @@ func _spawn_player() -> void:
 			best_n = n
 			best = d
 	player.set_look(atan2(-float(best.x), -float(best.y)))
+	if Game.debug_shot:
+		# налагодження знімків: інша точка й напрямок камери
+		if Game.debug_at.x >= 0:
+			player.global_position = builder.center(Game.debug_at.x, Game.debug_at.y) + Vector3(0, 0.1, 0)
+		if not is_nan(Game.debug_yaw):
+			player.set_look(Game.debug_yaw)
+		player._pitch = Game.debug_pitch
 	player.died.connect(_on_player_died)
 
 func spawn_enemy(id: String, pos: Vector3) -> Enemy:
@@ -203,6 +288,15 @@ func ground_height(pos: Vector3) -> float:
 			_: k = 1.0 - lz
 		hh += clamp(k, 0.0, 1.0)
 	return hh
+
+## Чи над обривом ця точка (ворогам туди не можна).
+func is_pit(pos: Vector3) -> bool:
+	var t := builder.tile_of(pos)
+	return builder.ch(t.x, t.y) == LevelBuilder.PIT
+
+## Чи стоїть точка у воді (для звуку кроків).
+func is_wet(pos: Vector3) -> bool:
+	return level.has("water") and ground_height(pos) < float(level.water)
 
 func on_gate_opened(g: Node) -> void:
 	for k in _gates.keys():
@@ -346,13 +440,44 @@ func _setup_ui() -> void:
 	settings_menu.visible = false
 	menu_layer.add_child(settings_menu)
 	settings_menu.closed.connect(func(): pause_menu.open())
+	if OS.is_debug_build():
+		debug_menu = DEBUG_MENU.new()
+		debug_menu.world = self
+		debug_menu.visible = false
+		menu_layer.add_child(debug_menu)
+		debug_menu.closed.connect(_close_menus)
+
+## Стара розкладає карти таро: пауза, вибір, нова доля.
+func open_tarot(crone: Node) -> void:
+	if _tarot != null:
+		return
+	_open_menu()
+	_tarot = TAROT_SCREEN.new()
+	_tarot.in_game = true
+	var layer := CanvasLayer.new()
+	layer.layer = 11
+	add_child(layer)
+	layer.add_child(_tarot)
+	_tarot.picked.connect(func(id: String):
+		layer.queue_free()
+		_tarot = null
+		_close_menus()
+		Game.choose_class(id)
+		hud.big_message(Game.cls().name.to_upper())
+		crone.after_choice())
+	_tarot.cancelled.connect(func():
+		layer.queue_free()
+		_tarot = null
+		_close_menus())
 
 func _unhandled_input(event: InputEvent) -> void:
-	if player == null or player.dead or _leaving:
+	if player == null or player.dead or _leaving or _tarot != null:
 		return
 	if event.is_action_pressed("pause"):
 		get_viewport().set_input_as_handled()
-		if settings_menu.visible:
+		if debug_menu and debug_menu.visible:
+			_close_menus()
+		elif settings_menu.visible:
 			settings_menu.close()
 		elif inventory_ui.visible:
 			_close_menus()
@@ -361,6 +486,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			_open_menu()
 			pause_menu.open()
+	elif event.is_action_pressed("debug_menu") and debug_menu != null and not ui_open:
+		get_viewport().set_input_as_handled()
+		_open_menu()
+		debug_menu.open()
 	elif event.is_action_pressed("inventory"):
 		get_viewport().set_input_as_handled()
 		if inventory_ui.visible:
@@ -379,6 +508,8 @@ func _close_menus() -> void:
 	pause_menu.visible = false
 	inventory_ui.visible = false
 	settings_menu.visible = false
+	if debug_menu:
+		debug_menu.visible = false
 	ui_open = false
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

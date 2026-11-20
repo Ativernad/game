@@ -21,6 +21,8 @@ var _slots: Array[Button] = []
 var _ids: Array = []
 var _last_focus := 0
 
+var _class_label: Label
+
 func _ready() -> void:
 	make_frame(0.75, 980.0)
 	var head := HBoxContainer.new()
@@ -28,8 +30,8 @@ func _ready() -> void:
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(t)
-	var c := Game.cls()
-	head.add_child(UITheme.label("%s · %s %s" % [c.name, c.arcana, c.card], 20, UITheme.GOLD))
+	_class_label = UITheme.label(Game.class_title(), 20, UITheme.GOLD)
+	head.add_child(_class_label)
 	box.add_child(head)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 24)
@@ -94,6 +96,7 @@ func _ready() -> void:
 
 func open() -> void:
 	visible = true
+	_class_label.text = Game.class_title()   # клас міг змінитися посеред рівня
 	_refresh()
 	_slots[clamp(_last_focus, 0, SLOTS - 1)].grab_focus()
 

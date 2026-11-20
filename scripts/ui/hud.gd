@@ -131,6 +131,8 @@ func _process(delta: float) -> void:
 			buffs += "   Сіль: %dс" % int(player.buff_damage)
 		if player.buff_stamina > 0.0:
 			buffs += "   Ладан: %dс" % int(player.buff_stamina)
+		if Game.god_mode:
+			buffs += "   [БЕЗСМЕРТЯ]"
 		_info.text = "[%s] лікування: %d    [%s] інвентар%s" % [key_name("heal"), heals, key_name("inventory"), buffs]
 	_flash.color.a = move_toward(_flash.color.a, 0.0, delta * 1.5)
 	var low: float = 1.0 - clamp(Game.hp / Game.max_hp() / 0.3, 0.0, 1.0)

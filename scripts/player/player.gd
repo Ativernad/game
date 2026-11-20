@@ -85,15 +85,41 @@ func _ready() -> void:
 	torch.shadow_enabled = true
 	torch.set_script(load("res://scripts/world/flicker.gd"))
 	cam.add_child(torch)
+	_update_torch()
+	Game.stats_changed.connect(_update_torch)
+	Settings.changed.connect(func(): cam.fov = Settings.get_v("fov"))
+	_build_viewmodel()
+	apply_class()
+	Game.class_changed.connect(apply_class)
+
+## Стати й зброя з поточного класу (викликається й тоді, коли стара дає карту).
+func apply_class() -> void:
 	var c := Game.cls()
 	max_stamina = c.stamina
 	stamina = max_stamina
 	speed = c.speed
 	base_damage = c.damage
-	_update_torch()
-	Game.stats_changed.connect(_update_torch)
-	Settings.changed.connect(func(): cam.fov = Settings.get_v("fov"))
-	_build_viewmodel()
+	blocking = false
+	_charge = -1.0
+	_vm_main.flip_h = false
+	_vm_off.flip_h = false
+	match Game.class_id:
+		"knight":
+			_vm_main.texture = Art.tex("vm_sword")
+			_vm_off.texture = Art.tex("vm_shield")
+		"archer":
+			_vm_main.texture = Art.tex("vm_bow")
+			_vm_off.texture = Art.tex("vm_dagger")
+		"beggar":
+			_vm_main.texture = Art.tex("vm_staff")
+			_vm_off.texture = Art.tex("vm_hand")
+		_:
+			# кулаки: ліва рука як у жебрака, права — віддзеркалена
+			_vm_main.texture = Art.tex("vm_hand")
+			_vm_main.flip_h = true
+			_vm_off.texture = Art.tex("vm_hand")
+	_vm_off.visible = true
+	_vm_off.rotation = 0.0
 
 func _update_torch() -> void:
 	torch.light_energy = 2.4
@@ -188,7 +214,10 @@ func _physics_process(delta: float) -> void:
 		_step_acc += hv * delta
 		if _step_acc > 2.1:
 			_step_acc = 0.0
-			Audio.play("step", randf_range(0.8, 1.1), -6.0)
+			if world and world.is_wet(global_position):
+				Audio.play("splash", randf_range(0.85, 1.15), -4.0)
+			else:
+				Audio.play("step", randf_range(0.8, 1.1), -6.0)
 	var bob := sin(_bob_t) * 0.04 if Settings.get_v("head_bob") else 0.0
 	head.position.y = lerp(head.position.y, 1.55 + bob, 0.3)
 	_shake = max(_shake - delta * 2.5, 0.0)
@@ -216,7 +245,10 @@ func _physics_process(delta: float) -> void:
 	_process_hits(delta)
 	_update_viewmodel(delta, hv)
 	if global_position.y < -25.0:
-		take_damage(9999.0, global_position)
+		if Game.god_mode:
+			teleport(world.builder.spawn)   # безсмертя: з безодні — на старт
+		else:
+			take_damage(9999.0, global_position)
 
 func _use_stamina(v: float, delay := 0.7) -> void:
 	if buff_stamina > 0.0:
@@ -266,6 +298,20 @@ func _combat_input(delta: float) -> void:
 				_play_anim("stab", 0.35)
 				Audio.play("swing", 1.4)
 				_pending_hits.append({"t": 0.1, "dmg": damage_value(0.5), "range": 2.0, "arc": 0.6, "knock": 1.5})
+		"nobody":
+			# кулаки: швидкий удар правою і повільніший важкий хук лівою
+			if Input.is_action_just_pressed("attack") and _cooldown <= 0.0 and stamina >= 6.0:
+				_use_stamina(9.0)
+				_cooldown = 0.38
+				_play_anim("jab", 0.3)
+				Audio.play("swing", 1.5, -4.0)
+				_pending_hits.append({"t": 0.09, "dmg": damage_value(), "range": 2.0, "arc": 0.5, "knock": 2.0})
+			elif Input.is_action_just_pressed("secondary") and _cooldown <= 0.0 and stamina >= 12.0:
+				_use_stamina(16.0)
+				_cooldown = 0.7
+				_play_anim("hook", 0.5)
+				Audio.play("swing", 1.1)
+				_pending_hits.append({"t": 0.22, "dmg": damage_value(1.6), "range": 2.0, "arc": 0.4, "knock": 4.5})
 		"beggar":
 			if Input.is_action_just_pressed("attack") and _cooldown <= 0.0 and stamina >= 8.0:
 				_use_stamina(13.0)
@@ -327,7 +373,7 @@ func _melee(hd: Dictionary) -> void:
 
 ## source — ворог, що б'є (для парирування); для снарядів null.
 func take_damage(amount: float, from: Vector3, source: Node = null) -> void:
-	if dead or _iframes > 0.0:
+	if dead or _iframes > 0.0 or Game.god_mode:
 		return
 	amount *= Game.difficulty().dmg
 	var to := from - global_position
@@ -411,6 +457,12 @@ func _finish_heal() -> void:
 	Audio.play("heal")
 	Game.message.emit("+%d здоров'я" % int(it.heal))
 
+## Миттєве переміщення (налагодження).
+func teleport(pos: Vector3) -> void:
+	global_position = pos + Vector3(0, 0.1, 0)
+	velocity = Vector3.ZERO
+	_dash_t = 0.0
+
 func is_healing() -> bool:
 	return _heal_t > 0.0
 
@@ -454,16 +506,6 @@ func _build_viewmodel() -> void:
 		t.size = Vector2(64, 64)
 		t.scale = Vector2(6, 6)
 		_vm_layer.add_child(t)
-	match Game.class_id:
-		"knight":
-			_vm_main.texture = Art.tex("vm_sword")
-			_vm_off.texture = Art.tex("vm_shield")
-		"archer":
-			_vm_main.texture = Art.tex("vm_bow")
-			_vm_off.texture = Art.tex("vm_dagger")
-		"beggar":
-			_vm_main.texture = Art.tex("vm_staff")
-			_vm_off.texture = Art.tex("vm_hand")
 	_vm_main.pivot_offset = Vector2(56, 60)
 	_vm_off.pivot_offset = Vector2(20, 60)
 
@@ -521,6 +563,18 @@ func _update_viewmodel(delta: float, hv: float) -> void:
 			_vm_main.position = main_pos + off + Vector2(bx, by)
 			if _dash_t > 0.0:
 				off_pos += Vector2(0, 80)
+		_:
+			# кулаки: права вперед на "jab", ліва дугою на "hook"
+			var k2 := sin(_anim_t * PI) if _anim_t < 1.0 else 0.0
+			_vm_main.position = main_pos + Vector2(-40, 30) + Vector2(bx, by)
+			if _anim_kind == "jab":
+				_vm_main.position += Vector2(-150, -110) * k2
+			off_pos = Vector2(vs.x * 0.06, vs.y - 64 * sc * 0.7)
+			if _anim_kind == "hook":
+				off_pos += Vector2(260, -120) * k2
+				_vm_off.rotation = 0.5 * k2
+			else:
+				_vm_off.rotation = 0.0
 	_vm_main.rotation = rot
 	_vm_off.position = off_pos + Vector2(-bx, by) * 0.6
 	if _heal_t > 0.0:

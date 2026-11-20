@@ -4,8 +4,13 @@ extends Node
 signal inventory_changed
 signal message(text: String)
 signal stats_changed
+signal class_changed
 
 const SAVE_PATH := "user://save.json"
+## v2: прибрано Підземелля Сторожа, Катакомби перед Ущелиною.
+## v3: Мертвий ліс і Руїни каплиці — одна локація.
+## v4: прибрано Хол, Бібліотеку й Коридори; Великі сходи, потім Лабораторія алхіміка.
+const SAVE_VERSION := 4
 const MAX_RELICS := 2
 const RETRY_MIN_HP := 0.5      # частка макс. здоров'я при завантаженні чекпоінта
 
@@ -19,7 +24,19 @@ const DIFFICULTY := [
 func difficulty() -> Dictionary:
 	return DIFFICULTY[clampi(int(Settings.get_v("difficulty")), 0, DIFFICULTY.size() - 1)]
 
+## Обирані карти таро (порядок — як їх розкладає стара).
+const TAROT := ["knight", "archer", "beggar"]
+
 const CLASSES := {
+	# до зустрічі зі старою в руїнах герой — ніхто, і б'ється кулаками
+	"nobody": {
+		"name": "Ніхто", "arcana": "", "card": "",
+		"hp": 80, "stamina": 100, "speed": 5.0, "damage": 13,
+		"weapon": "Кулаки",
+		"desc": "Без імені, без зброї, без долі.\n\nЛКМ / RT — удар правою\nПКМ / LT — важкий хук лівою",
+		"items": {"bandage": 1},
+		"color": Color(0.5, 0.48, 0.45),
+	},
 	"knight": {
 		"name": "Лицар", "arcana": "VII", "card": "КОЛІСНИЦЯ",
 		"hp": 130, "stamina": 100, "speed": 4.6, "damage": 26,
@@ -55,6 +72,7 @@ var bosses_killed: Array = []
 var play_time := 0.0
 var kills := 0
 var debug_shot := false
+var god_mode := false          # налагодження: шкода не проходить (не зберігається)
 
 func _ready() -> void:
 	# Налагодження: Godot ... -- --level=5 --class=archer  (одразу відкриває локацію)
@@ -70,13 +88,31 @@ func _ready() -> void:
 	if not CLASSES.has(class_id):
 		class_id = "knight"
 	hp = max_hp()
+	# --shot=файл.png [--shot_wait=сек] [--at=x,z (клітинка)] [--yaw=градуси] [--pitch=градуси]
+	var wait := 4.0
+	var shot := ""
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shot="):
-			debug_shot = true
-			_screenshot(a.substr(7))
+			shot = a.substr(7)
+		elif a.begins_with("--shot_wait="):
+			wait = float(a.substr(12))
+		elif a.begins_with("--at="):
+			var xz := a.substr(5).split(",")
+			debug_at = Vector2i(int(xz[0]), int(xz[1]))
+		elif a.begins_with("--yaw="):
+			debug_yaw = deg_to_rad(float(a.substr(6)))
+		elif a.begins_with("--pitch="):
+			debug_pitch = deg_to_rad(float(a.substr(8)))
+	if shot != "":
+		debug_shot = true
+		_screenshot(shot, wait)
 
-func _screenshot(path: String) -> void:
-	await get_tree().create_timer(4.0).timeout
+var debug_at := Vector2i(-1, -1)
+var debug_yaw := NAN
+var debug_pitch := 0.0
+
+func _screenshot(path: String, wait: float) -> void:
+	await get_tree().create_timer(wait).timeout
 	get_viewport().get_texture().get_image().save_png(path)
 	get_tree().quit()
 
@@ -87,7 +123,22 @@ func _process(delta: float) -> void:
 func cls() -> Dictionary:
 	return CLASSES[class_id]
 
-func new_game(id: String) -> void:
+## Назва для інтерфейсу: "Лицар · VII КОЛІСНИЦЯ" або просто "Ніхто".
+func class_title() -> String:
+	var c := cls()
+	return c.name if c.arcana == "" else "%s · %s %s" % [c.name, c.arcana, c.card]
+
+## Стара розклала карти — герой стає тим, кого обрав. Повне здоров'я й речі класу.
+func choose_class(id: String) -> void:
+	class_id = id
+	var items: Dictionary = cls().items
+	for k in items:
+		add_item(k, items[k])
+	hp = max_hp()
+	class_changed.emit()
+	stats_changed.emit()
+
+func new_game(id := "nobody") -> void:
 	class_id = id
 	level_index = 0
 	inventory.clear()
@@ -190,12 +241,13 @@ func best_heal_item() -> String:
 
 # ---------------------------------------------------------------- рівні та збереження
 
-func go_to_level(i: int) -> void:
+func go_to_level(i: int, save := true) -> void:
 	level_index = i
 	if level_index >= LevelDB.LEVELS.size():
 		get_tree().change_scene_to_file("res://scenes/ending.tscn")
 		return
-	save_game()
+	if save:
+		save_game()
 	get_tree().change_scene_to_file("res://scenes/game.tscn")
 
 func next_level() -> void:
@@ -209,7 +261,7 @@ func save_game() -> void:
 	if f == null:
 		return
 	f.store_string(JSON.stringify({
-		"class": class_id, "level": level_index, "hp": hp,
+		"version": SAVE_VERSION, "class": class_id, "level": level_index, "hp": hp,
 		"inventory": inventory, "equipped": equipped,
 		"bosses": bosses_killed, "time": play_time, "kills": kills,
 	}))
@@ -223,6 +275,17 @@ func load_game() -> bool:
 		return false
 	class_id = d.get("class", "knight")
 	level_index = int(d.get("level", 0))
+	if int(d.get("version", 1)) < 2:
+		# старий порядок: 0 ліс, 1 руїни, 2 підземелля, 3 ущелина, 4 катакомби, 5+ місто…
+		# 0–3 лягають на ліс, руїни, катакомби (замість підземелля), ущелину;
+		# 4 (катакомби після ущелини) веде далі — у місто; решта зсувається на 1.
+		if level_index >= 5:
+			level_index -= 1
+	if int(d.get("version", 1)) < 3 and level_index >= 1:
+		level_index -= 1     # руїни злилися з лісом: усе після них зсувається
+	if int(d.get("version", 1)) < 4:
+		# v3: 0 ліс, 1 кат, 2 ущ, 3 місто, 4 хол, 5 сходи, 6 бібл, 7 туман, 8 коридори, 9 трон
+		level_index = [0, 1, 2, 3, 4, 4, 5, 6, 7, 7][clampi(level_index, 0, 9)]
 	inventory = []
 	for e in d.get("inventory", []):
 		inventory.append({"id": str(e.id), "count": int(e.count)})

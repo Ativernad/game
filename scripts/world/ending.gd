@@ -175,14 +175,13 @@ func _say(text: String, at: float, dur: float, size := 40) -> void:
 	tw.tween_property(_text, "modulate:a", 0.0, 1.2)
 
 func _play_texts() -> void:
-	var c := Game.cls()
 	_say("Принц упав. Чаша розбилася.", 2.0, 2.5, 36)
 	_say("Ніч, що тривала сто років, відступає.", 7.5, 2.5, 36)
 	_say("СВІТАНОК", 13.5, 4.0, 96)
 	var mins := int(Game.play_time) / 60
 	var secs := int(Game.play_time) % 60
-	_stats.text = "%s · %s %s\nЧас у темряві: %d:%02d    Упокоєно: %d\n\nДякуємо за гру\n[будь-яка клавіша — у головне меню]" % [
-		c.name, c.arcana, c.card, mins, secs, Game.kills]
+	_stats.text = "%s\nЧас у темряві: %d:%02d    Упокоєно: %d\n\nДякуємо за гру\n[будь-яка клавіша — у головне меню]" % [
+		Game.class_title(), mins, secs, Game.kills]
 	var tw := create_tween()
 	tw.tween_interval(19.5)
 	tw.tween_property(_stats, "modulate:a", 1.0, 1.5)

@@ -80,7 +80,8 @@ const STUN_BOSS := 0.8
 const STUN_DAMAGE_MULT := 1.5
 const SLAM_RADIUS := 4.8
 const WARDEN_EXHAUST := 1.8
-const PRINCE_DARK := 0.45     # яскравість смолоскипа в третій фазі Принца
+const PRINCE_DARK := 0.45
+const FALL_DEATH_Y := -12.0     # яскравість смолоскипа в третій фазі Принца
 
 func setup(id: String, w: Node) -> void:
 	type_id = id
@@ -283,6 +284,9 @@ func _physics_process(delta: float) -> void:
 		"special":
 			move = _special_tick(p, flat, dist, delta)
 
+	# не ступати в обрив (відкидання ударом — можна, це й є задум)
+	if move != Vector3.ZERO and world.is_pit(global_position + move.normalized() * (radius + 0.6)):
+		move = Vector3.ZERO
 	var target := move * spd
 	target += _knock
 	_knock = _knock.move_toward(Vector3.ZERO, delta * 12.0)
@@ -305,6 +309,10 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y = -0.5
 	move_and_slide()
+	if global_position.y < FALL_DEATH_Y:
+		Game.message.emit("%s зірвався в безодню" % data.name)
+		_die()
+		return
 	_animate(delta, Vector2(velocity.x, velocity.z).length())
 
 func _chase(p: Player, flat: Vector3, dist: float) -> Vector3:

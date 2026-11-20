@@ -131,6 +131,7 @@ func _setup_input() -> void:
 	_add("heal", [_key(KEY_Q), _joy(JOY_BUTTON_Y)])
 	_add("inventory", [_key(KEY_TAB), _key(KEY_I), _joy(JOY_BUTTON_BACK)])
 	_add("pause", [_key(KEY_ESCAPE), _joy(JOY_BUTTON_START)])
+	_add("debug_menu", [_key(KEY_L)])    # клавіша «Д» (L в англ. розкладці); лише в debug-збірках
 	# Навігація меню стіком/хрестовиною вже є у вбудованих ui_* діях,
 	# додаємо лише лівий стік для зручності.
 	_add("ui_up", [_axis(JOY_AXIS_LEFT_Y, -1.0)])

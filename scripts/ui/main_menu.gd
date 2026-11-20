@@ -52,7 +52,7 @@ func _ready() -> void:
 	if Game.has_save():
 		var b := UITheme.button("Продовжити", func(): Game.continue_game())
 		_menu.add_child(b)
-	_menu.add_child(UITheme.button("Нова гра", func(): get_tree().change_scene_to_file("res://scenes/class_select.tscn")))
+	_menu.add_child(UITheme.button("Нова гра", func(): Game.new_game()))
 	_menu.add_child(UITheme.button("Налаштування", _open_settings))
 	_menu.add_child(UITheme.button("Вийти", func(): get_tree().quit()))
 	var ver := UITheme.label("Godot 4.7 · клавіатура, миша, контролер", 14, UITheme.DIM)
