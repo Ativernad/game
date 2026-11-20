@@ -20,6 +20,7 @@ var values := {
 	"retro": true,
 	"brightness": 1.1,
 	"head_bob": true,
+	"difficulty": 1,    # 0 легка, 1 звичайна, 2 важка (див. Game.DIFFICULTY)
 }
 
 func _ready() -> void:

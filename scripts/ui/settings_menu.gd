@@ -19,6 +19,11 @@ func _ready() -> void:
 	list.add_theme_constant_override("separation", 6)
 	scroll.add_child(list)
 
+	_section(list, "ГРА")
+	var names: Array = []
+	for d in Game.DIFFICULTY:
+		names.append(d.name)
+	_option(list, "Складність", "difficulty", names)
 	_section(list, "ЗВУК")
 	_slider(list, "Загальна гучність", "master", 0.0, 1.0, 0.05, true)
 	_slider(list, "Музика й атмосфера", "music", 0.0, 1.0, 0.05, true)
@@ -82,6 +87,25 @@ func _slider(list: VBoxContainer, text: String, key: String, mn: float, mx: floa
 	list.add_child(row)
 	if _first == null:
 		_first = s
+
+func _option(list: VBoxContainer, text: String, key: String, names: Array) -> void:
+	var row := HBoxContainer.new()
+	var l := UITheme.label(text, 20)
+	l.custom_minimum_size = Vector2(300, 0)
+	row.add_child(l)
+	var ob := OptionButton.new()
+	for n in names:
+		ob.add_item(n)
+	ob.selected = clampi(int(Settings.get_v(key)), 0, names.size() - 1)
+	ob.custom_minimum_size = Vector2(260, 36)
+	ob.item_selected.connect(func(i: int):
+		Audio.play("ui_ok")
+		Settings.set_v(key, i))
+	ob.mouse_entered.connect(func(): ob.grab_focus())
+	row.add_child(ob)
+	list.add_child(row)
+	if _first == null:
+		_first = ob
 
 func _check(list: VBoxContainer, text: String, key: String) -> void:
 	var c := CheckBox.new()

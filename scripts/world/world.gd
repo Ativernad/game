@@ -173,6 +173,10 @@ func spawn_hit_fx(pos: Vector3) -> void:
 	tw.parallel().tween_property(s, "modulate:a", 0.0, 0.2)
 	tw.tween_callback(s.queue_free)
 
+func dim_player_torch(k: float) -> void:
+	if player:
+		player.set_torch_dim(k)
+
 func shake(v: float) -> void:
 	if player:
 		player._shake = max(player._shake, v)
@@ -289,6 +293,7 @@ func start_boss(e: Enemy) -> void:
 
 func _on_boss_dead(e: Enemy) -> void:
 	hud.hide_boss()
+	dim_player_torch(1.0)
 	Audio.set_mood(level.mood)
 	Audio.play("bell", 0.8)
 	if not Game.bosses_killed.has(e.type_id):

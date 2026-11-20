@@ -11,6 +11,11 @@ var life := 5.0
 var tint := Color.WHITE
 var _stuck := false
 
+const HEADSHOT_MULT := 1.75
+const BODY_BOTTOM := 0.2      # висоти зони влучання (× масштаб ворога)
+const BODY_TOP := 1.6
+const HEAD_FROM := 1.3        # вище цієї висоти — «голова»
+
 func setup(pos: Vector3, vel: Vector3, dmg: float, group: String, tex: String) -> void:
 	position = pos
 	velocity = vel
@@ -64,12 +69,24 @@ func _physics_process(delta: float) -> void:
 	for t in get_tree().get_nodes_in_group(target_group):
 		if t.get("dead"):
 			continue
-		var center: Vector3 = t.global_position + Vector3(0, 1.0 * t.get_meta("hscale", 1.0), 0)
+		# зона влучання — вертикальна капсула на весь зріст (раніше була куля
+		# на висоті 1 м, і стріли в голову пролітали мимо)
+		var hs: float = t.get_meta("hscale", 1.0)
+		var base: Vector3 = t.global_position + Vector3(0, BODY_BOTTOM * hs, 0)
+		var top: Vector3 = t.global_position + Vector3(0, BODY_TOP * hs, 0)
 		var r: float = t.get_meta("hit_radius", 0.6)
-		var cp := Geometry3D.get_closest_point_to_segment(center, from, to)
-		if cp.distance_to(center) < r and abs(cp.y - center.y) < 1.2 * t.get_meta("hscale", 1.0):
+		var pts := Geometry3D.get_closest_points_between_segments(from, to, base, top)
+		var cp: Vector3 = pts[0]
+		if cp.distance_to(pts[1]) < r:
 			if target_group == "enemies":
-				t.take_damage(damage, velocity.normalized() * 1.5)
+				# стріла у верхню частину (голову) — критична шкода
+				var crit: bool = tex_name == "arrow" and cp.y > t.global_position.y + HEAD_FROM * hs
+				t.take_damage(damage * (HEADSHOT_MULT if crit else 1.0), velocity.normalized() * 1.5)
+				if crit:
+					Audio.play_3d("bone", cp, 1.7, 3.0)
+					if t.get("world"):
+						t.world.spawn_hit_fx(cp)
+						t.world.spawn_hit_fx(cp)
 			else:
 				t.take_damage(damage, from)
 			Audio.play_3d("arrow_hit", cp)

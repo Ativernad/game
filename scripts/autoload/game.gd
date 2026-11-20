@@ -9,12 +9,22 @@ const SAVE_PATH := "user://save.json"
 const MAX_RELICS := 2
 const RETRY_MIN_HP := 0.5      # частка макс. здоров'я при завантаженні чекпоінта
 
+## dmg — множник шкоди по гравцю, hp — множник здоров'я ворогів.
+const DIFFICULTY := [
+	{"name": "Легка", "dmg": 0.6, "hp": 0.8},
+	{"name": "Звичайна", "dmg": 1.0, "hp": 1.0},
+	{"name": "Важка", "dmg": 1.4, "hp": 1.25},
+]
+
+func difficulty() -> Dictionary:
+	return DIFFICULTY[clampi(int(Settings.get_v("difficulty")), 0, DIFFICULTY.size() - 1)]
+
 const CLASSES := {
 	"knight": {
 		"name": "Лицар", "arcana": "VII", "card": "КОЛІСНИЦЯ",
 		"hp": 130, "stamina": 100, "speed": 4.6, "damage": 26,
 		"weapon": "Меч і щит",
-		"desc": "Присягнув королю, якого вже немає. Важкий меч, міцний щит.\n\nЛКМ / RT — удар мечем\nПКМ / LT — тримати щит (блок)",
+		"desc": "Присягнув королю, якого вже немає. Важкий меч, міцний щит.\n\nЛКМ / RT — удар мечем\nПКМ / LT — тримати щит (блок)\nВчасний блок — парирування",
 		"items": {"bandage": 2},
 		"color": Color(0.75, 0.62, 0.3),
 	},
@@ -22,7 +32,7 @@ const CLASSES := {
 		"name": "Лучниця", "arcana": "XVIII", "card": "МІСЯЦЬ",
 		"hp": 90, "stamina": 110, "speed": 5.2, "damage": 30,
 		"weapon": "Довгий лук",
-		"desc": "Полювала на вовків, тепер — на мерців. Б'є здалеку.\n\nЛКМ / RT — натягнути й випустити стрілу\nПКМ / LT — удар кинджалом",
+		"desc": "Полювала на вовків, тепер — на мерців. Б'є здалеку.\n\nЛКМ / RT — натягнути й випустити стрілу\nПКМ / LT — удар кинджалом\nСтріла в голову — більша шкода",
 		"items": {"bandage": 2, "herb": 1},
 		"color": Color(0.55, 0.65, 0.8),
 	},

@@ -71,8 +71,16 @@ var _home := Vector3.ZERO
 var _wander := Vector3.ZERO
 var _wander_t := 0.0
 var _stagger_cd := 0.0
+var _stun_t := 0.0
+var _tele_len := 0.5      # тривалість поточного замаху (для підсвічування)
 
 const STAGGER_IMMUNITY := 2.5
+const STUN_NORMAL := 1.5
+const STUN_BOSS := 0.8
+const STUN_DAMAGE_MULT := 1.5
+const SLAM_RADIUS := 4.8
+const WARDEN_EXHAUST := 1.8
+const PRINCE_DARK := 0.45     # яскравість смолоскипа в третій фазі Принца
 
 func setup(id: String, w: Node) -> void:
 	type_id = id
@@ -86,7 +94,7 @@ func _ready() -> void:
 	floor_max_angle = deg_to_rad(50)
 	var sc: float = data.get("scale", 1.0)
 	is_boss = data.get("boss", false)
-	max_hp = data.hp
+	max_hp = data.hp * Game.difficulty().hp
 	hp = max_hp
 	radius = 0.4 * sc
 	set_meta("hit_radius", 0.55 * sc)
@@ -133,6 +141,8 @@ func player() -> Player:
 func take_damage(amount: float, knock: Vector3) -> void:
 	if dead:
 		return
+	if _stun_t > 0.0:
+		amount *= STUN_DAMAGE_MULT   # оглушений ворог беззахисний
 	hp -= amount
 	_flash = 0.15
 	_knock += knock * (0.25 if is_boss else 1.0)
@@ -146,6 +156,23 @@ func take_damage(amount: float, knock: Vector3) -> void:
 		_state = "recover"   # переривання атаки
 		_state_t = 0.4
 		_stagger_cd = STAGGER_IMMUNITY   # потім кілька секунд замах не збити
+
+## Оглушення після парирування: ворог відкритий і отримує більше шкоди.
+func stun(duration := -1.0) -> void:
+	if dead:
+		return
+	var t := duration if duration > 0.0 else (STUN_BOSS if is_boss else STUN_NORMAL)
+	_state = "recover"
+	_state_t = t
+	_stun_t = t
+	_special = ""
+	_cd = max(_cd, t * 0.5)
+	_restore_alpha()
+	Audio.play_3d(data.sound, global_position, 0.6)
+
+func _restore_alpha() -> void:
+	for s in layers:
+		s.modulate.a = data.get("alpha", 1.0)
 
 func _alert() -> void:
 	if alerted:
@@ -220,9 +247,10 @@ func _physics_process(delta: float) -> void:
 	_cd = max(_cd - delta, 0.0)
 	_special_cd = max(_special_cd - delta, 0.0)
 	_stagger_cd = max(_stagger_cd - delta, 0.0)
+	_stun_t = max(_stun_t - delta, 0.0)
 	_state_t -= delta
 	var move := Vector3.ZERO
-	var spd: float = data.speed * (1.3 if phase == 2 else 1.0)
+	var spd: float = data.speed * (1.3 if phase >= 2 else 1.0)
 
 	if p.dead:
 		alerted = false
@@ -298,15 +326,18 @@ func _chase(p: Player, flat: Vector3, dist: float) -> Vector3:
 	_state = "move"
 	return dir
 
-func _begin_attack() -> void:
+func _begin_attack(extra := 0.0) -> void:
 	_state = "windup"
-	_state_t = data.windup * (0.75 if phase == 2 else 1.0)
+	_state_t = data.windup * (0.75 if phase >= 2 else 1.0) + extra
+	_tele_len = _state_t
 	_hit_done = false
+	# звуковий сигнал замаху, щоб атаку можна було прочитати й заблокувати
+	Audio.play_3d("windup", global_position, (0.7 if is_boss else 1.0) * randf_range(0.95, 1.05), -2.0)
 
 func _strike(p: Player, flat: Vector3, dist: float) -> void:
 	_state = "recover"
 	_state_t = 0.45
-	_cd = data.cd * (0.7 if phase == 2 else 1.0)
+	_cd = data.cd * (0.7 if phase >= 2 else 1.0)
 	if data.kind == "ranged":
 		_shoot(p, data.proj, 1)
 		return
@@ -314,7 +345,7 @@ func _strike(p: Player, flat: Vector3, dist: float) -> void:
 	if dist <= data.range + 0.4 and not p.dead:
 		var q := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 1.0, 0), p.global_position + Vector3(0, 1.0, 0), 1)
 		if get_world_3d().direct_space_state.intersect_ray(q).is_empty():
-			p.take_damage(data.dmg, global_position)
+			p.take_damage(data.dmg, global_position, self)
 
 func _shoot(p: Player, proj: String, count: int, spread := 0.0, tint := Color.WHITE) -> void:
 	var src := global_position + Vector3(0, 1.3 * data.get("scale", 1.0), 0)
@@ -339,8 +370,15 @@ func _boss_think(p: Player, flat: Vector3, dist: float) -> void:
 		for s in layers:
 			s.modulate = Color(1.0, 0.7, 0.7)
 		_summon(3 if type_id == "warden" else 2)
-	if type_id == "prince" and hp < max_hp * 0.25 and _summoned.size() < 4:
+	if type_id == "prince" and phase == 2 and hp < max_hp * 0.25:
+		# третя фаза: темрява й телепорти за спину
+		phase = 3
+		Audio.play("roar", 0.6)
+		Game.message.emit("Принц кличе вічну ніч!")
 		_summon(2)
+		if world.has_method("dim_player_torch"):
+			world.dim_player_torch(PRINCE_DARK)
+		_special_cd = 1.5
 	if _special_cd > 0.0 or not _los:
 		return
 	match type_id:
@@ -348,9 +386,11 @@ func _boss_think(p: Player, flat: Vector3, dist: float) -> void:
 			if dist < 6.0:
 				_start_special("slam", 1.1)
 		"prince":
-			if dist > 4.5 and dist < 13.0 and randf() < 0.6:
+			if phase == 3 and dist > 3.0 and randf() < 0.5:
+				_start_special("blink", 0.6)
+			elif dist > 4.5 and dist < 13.0 and randf() < 0.6:
 				_start_special("lunge", 0.55)
-			elif phase == 2 or randf() < 0.4:
+			elif phase >= 2 or randf() < 0.4:
 				_start_special("volley", 0.7)
 
 func _start_special(kind: String, windup: float) -> void:
@@ -358,8 +398,41 @@ func _start_special(kind: String, windup: float) -> void:
 	_special = kind
 	_state_t = windup
 	_hit_done = false
-	_special_cd = randf_range(6.0, 9.0) * (0.7 if phase == 2 else 1.0)
-	Audio.play_3d("roar", global_position, 1.3, -6.0)
+	_special_cd = randf_range(6.0, 9.0) * (0.7 if phase >= 2 else 1.0)
+	_tele_len = windup
+	if kind == "blink":
+		Audio.play_3d("magic", global_position, 0.5)
+	else:
+		Audio.play_3d("roar", global_position, 1.3, -6.0)
+	if kind == "slam":
+		_spawn_danger_ring(SLAM_RADIUS, windup)
+
+## Куди телепортуватися: за спину гравця, а якщо там стіна — збоку чи спереду.
+func _blink_target(p: Player) -> Vector3:
+	var b := p.global_transform.basis
+	for dir in [b.z, b.x, -b.x, (b.z + b.x).normalized(), (b.z - b.x).normalized(), -b.z]:
+		var flat_dir := Vector3(dir.x, 0, dir.z).normalized()
+		var t: Vector2i = world.builder.tile_of(p.global_position + flat_dir * 2.2)
+		if world.builder.walkable(t.x, t.y):
+			return world.builder.center(t.x, t.y)
+	return global_position
+
+## Червона пляма на землі: зона, куди прийде удар.
+func _spawn_danger_ring(r: float, t: float) -> void:
+	var s := LevelBuilder.sprite("glow", 0.08, false)
+	s.shaded = false
+	s.alpha_cut = SpriteBase3D.ALPHA_CUT_DISABLED
+	s.modulate = Color(1.0, 0.15, 0.1, 0.0)
+	s.rotation.x = -PI / 2
+	world.add_entity(s)
+	s.global_position = global_position + Vector3(0, 0.06, 0)
+	var full := r * 2.0 / (16.0 * 0.08)   # текстура glow 16 px
+	s.scale = Vector3.ONE * full * 0.3
+	var tw := s.create_tween()
+	tw.tween_property(s, "scale", Vector3.ONE * full, t).set_trans(Tween.TRANS_SINE)
+	tw.parallel().tween_property(s, "modulate:a", 0.7, t)
+	tw.tween_property(s, "modulate:a", 0.0, 0.35)
+	tw.tween_callback(s.queue_free)
 
 func _special_tick(p: Player, flat: Vector3, dist: float, delta: float) -> Vector3:
 	match _special:
@@ -370,12 +443,24 @@ func _special_tick(p: Player, flat: Vector3, dist: float, delta: float) -> Vecto
 				world.shake(0.9)
 				for i in 10:
 					world.spawn_hit_fx(global_position + Vector3(randf_range(-3, 3), 0.2, randf_range(-3, 3)))
-				if dist < 4.8:
-					p.take_damage(26.0, global_position)
+				if dist < SLAM_RADIUS:
+					p.take_damage(26.0, global_position, self)
 				_state_t = -0.01
 			if _state_t < -0.6:
-				_state = "recover"
-				_state_t = 0.6
+				# після удару Сторож застряг мечем у підлозі — вікно для атаки
+				stun(WARDEN_EXHAUST * (0.7 if phase >= 2 else 1.0))
+			return Vector3.ZERO
+		"blink":
+			if _state_t > 0.0:
+				for s in layers:
+					s.modulate.a = clampf(_state_t / _tele_len, 0.1, 1.0)
+				return Vector3.ZERO
+			# з'являється за спиною гравця й одразу замахується
+			global_position = _blink_target(p)
+			_restore_alpha()
+			world.spawn_hit_fx(global_position + Vector3(0, 1.2, 0))
+			Audio.play_3d("magic", global_position, 0.8)
+			_begin_attack(0.25)
 			return Vector3.ZERO
 		"lunge":
 			if _state_t > 0.0:
@@ -384,14 +469,14 @@ func _special_tick(p: Player, flat: Vector3, dist: float, delta: float) -> Vecto
 			if _state_t > -0.45:
 				if not _hit_done and dist < 2.0:
 					_hit_done = true
-					p.take_damage(26.0, global_position)
+					p.take_damage(26.0, global_position, self)
 				return _lunge_dir * 4.5
 			_state = "recover"
 			_state_t = 0.7
 			return Vector3.ZERO
 		"volley":
 			if _state_t <= 0.0:
-				_shoot(p, "fireball", 5 if phase == 2 else 3, 0.22, Color(0.8, 0.4, 1.0))
+				_shoot(p, "fireball", 5 if phase >= 2 else 3, 0.22, Color(0.8, 0.4, 1.0))
 				_state = "recover"
 				_state_t = 0.8
 			return Vector3.ZERO
@@ -428,9 +513,13 @@ func _animate(delta: float, spd: float) -> void:
 	var wpn_off := Vector3.ZERO
 	var wpn_rot := 0.0
 	var body_lean := 0.0
+	var tele := -1.0      # 0..1 — наскільки близько удар; -1 — не замахується
+	if _stun_t > 0.0:
+		body_lean = sin(_t * 9.0) * 0.12   # хитається, оглушений
 	match _state:
 		"windup":
-			var k: float = 1.0 - clamp(_state_t / max(data.windup, 0.01), 0.0, 1.0)
+			var k: float = 1.0 - clamp(_state_t / max(_tele_len, 0.01), 0.0, 1.0)
+			tele = k
 			wpn_off = Vector3(0.1, 0.35, 0) * k
 			wpn_rot = 0.6 * k
 			body_lean = -0.08 * k
@@ -440,6 +529,8 @@ func _animate(delta: float, spd: float) -> void:
 			wpn_rot = -0.9 * k2
 			body_lean = 0.1 * k2
 		"special":
+			if _state_t > 0.0:
+				tele = 1.0 - clampf(_state_t / max(_tele_len, 0.01), 0.0, 1.0)
 			if _special == "slam":
 				var k3: float = clamp(1.0 - _state_t / 1.1, 0.0, 1.0) if _state_t > 0 else 0.0
 				wpn_off = Vector3(0, 0.6, 0) * k3
@@ -460,8 +551,14 @@ func _animate(delta: float, spd: float) -> void:
 			s.rotation.z += wpn_rot
 		if _flash > 0.0:
 			s.modulate = Color(1.0, 0.35, 0.3, s.modulate.a)
-		elif _state == "windup" or (_state == "special" and _state_t > 0.0):
-			s.modulate = Color(1.25, 1.1, 1.0, s.modulate.a) if not is_boss or phase == 1 else Color(1.3, 0.7, 0.7, s.modulate.a)
+		elif _stun_t > 0.0:
+			s.modulate = Color(0.6, 0.7, 1.1, s.modulate.a)
+		elif tele >= 0.0:
+			# розгоряється до біло-помаранчевого перед самим ударом
+			var hot := Color(1.9, 1.35, 0.7) if not is_boss or phase == 1 else Color(1.9, 0.8, 0.6)
+			var c := Color(1, 1, 1).lerp(hot, tele * tele)
+			c.a = s.modulate.a
+			s.modulate = c
 		else:
 			s.modulate = (Color(1, 1, 1, s.modulate.a) if phase == 1 else Color(1.0, 0.7, 0.7, s.modulate.a))
 	if data.get("float", false):

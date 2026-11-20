@@ -9,6 +9,10 @@ signal died
 const GRAVITY := 18.0
 const JUMP := 5.2
 const ACCEL := 10.0
+const PARRY_WINDOW := 0.2      # перші секунди блоку, коли удар парирується
+const HEAL_TIME := 0.8         # лікування триває, а не спрацьовує миттєво
+const HEAL_SLOW := 0.4
+const DASH_COOLDOWN := 0.6
 
 var world: Node
 var head: Node3D
@@ -37,6 +41,12 @@ var _charge := -1.0                # лук: -1 = не натягнуто
 var buff_damage := 0.0
 var buff_stamina := 0.0
 var _was_on_floor := true
+var _block_t := 0.0
+var _heal_t := 0.0
+var _heal_id := ""
+var _dash_cd := 0.0
+var _charge_cued := false
+var _torch_base := -1.0
 
 # вид від першої особи
 var _vm_layer: CanvasLayer
@@ -129,13 +139,19 @@ func _physics_process(delta: float) -> void:
 	_iframes = max(_iframes - delta, 0.0)
 	buff_damage = max(buff_damage - delta, 0.0)
 	buff_stamina = max(buff_stamina - delta, 0.0)
+	_dash_cd = max(_dash_cd - delta, 0.0)
+	if _heal_t > 0.0:
+		_heal_t -= delta
+		if _heal_t <= 0.0:
+			_finish_heal()
+	var healing := _heal_t > 0.0
 
 	# рух
 	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back") if active else Vector2.ZERO
 	var dir := (transform.basis * Vector3(input.x, 0, input.y))
 	dir.y = 0
-	var sprinting := active and Input.is_action_pressed("sprint") and input.length() > 0.1 and stamina > 1.0 and not blocking
-	var spd := speed * (1.55 if sprinting else 1.0) * (0.45 if blocking else 1.0) * (0.6 if _charge >= 0.0 else 1.0)
+	var sprinting := active and Input.is_action_pressed("sprint") and input.length() > 0.1 and stamina > 1.0 and not blocking and not healing
+	var spd := speed * (1.55 if sprinting else 1.0) * (0.45 if blocking else 1.0) * (0.6 if _charge >= 0.0 else 1.0) * (HEAL_SLOW if healing else 1.0)
 	if sprinting:
 		_use_stamina(18.0 * delta, 0.3)
 	var target := dir * spd
@@ -180,7 +196,11 @@ func _physics_process(delta: float) -> void:
 	cam.v_offset = randf_range(-1, 1) * _shake * 0.08
 
 	if active:
-		_combat_input(delta)
+		if healing:
+			blocking = false   # під час лікування руки зайняті
+			_charge = -1.0
+		else:
+			_combat_input(delta)
 		if Input.is_action_just_pressed("interact"):
 			var it := find_interactable()
 			if it:
@@ -212,8 +232,13 @@ func damage_value(mult := 1.0) -> float:
 func _combat_input(delta: float) -> void:
 	match Game.class_id:
 		"knight":
-			blocking = Input.is_action_pressed("secondary") and stamina > 2.0
+			var want_block := Input.is_action_pressed("secondary") and stamina > 2.0
+			if want_block and not blocking:
+				_block_t = 0.0
+				_use_stamina(5.0, 0.4)   # щоб парирування не можна було спамити
+			blocking = want_block
 			if blocking:
+				_block_t += delta
 				_stam_delay = 0.4
 			if Input.is_action_just_pressed("attack") and _cooldown <= 0.0 and not blocking and stamina >= 10.0:
 				_use_stamina(18.0)
@@ -225,8 +250,12 @@ func _combat_input(delta: float) -> void:
 			if Input.is_action_pressed("attack") and _cooldown <= 0.0 and stamina >= 6.0:
 				if _charge < 0.0:
 					_charge = 0.0
+					_charge_cued = false
 					Audio.play("bow", 0.7, -8.0)
 				_charge = min(_charge + delta / 0.75, 1.0)
+				if _charge >= 1.0 and not _charge_cued:
+					_charge_cued = true   # сигнал повного натягу
+					Audio.play("ui_ok", 1.5, -4.0)
 			elif _charge >= 0.0:
 				_fire_arrow(_charge)
 				_charge = -1.0
@@ -244,13 +273,14 @@ func _combat_input(delta: float) -> void:
 				_play_anim("swing", 0.45)
 				Audio.play("swing", 1.1)
 				_pending_hits.append({"t": 0.14, "dmg": damage_value(), "range": 2.9, "arc": 0.4, "knock": 5.0})
-			if Input.is_action_just_pressed("secondary") and _dash_t <= 0.0 and stamina >= 20.0:
+			if Input.is_action_just_pressed("secondary") and _dash_t <= 0.0 and _dash_cd <= 0.0 and stamina >= 20.0:
 				_use_stamina(25.0)
 				var inp := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 				if inp.length() < 0.2:
 					inp = Vector2(0, -1)
 				_dash_dir = (transform.basis * Vector3(inp.x, 0, inp.y)).normalized()
 				_dash_t = 0.22
+				_dash_cd = _dash_t + DASH_COOLDOWN
 				_iframes = 0.35
 				Audio.play("dash")
 
@@ -295,12 +325,26 @@ func _melee(hd: Dictionary) -> void:
 		_shake = max(_shake, 0.35)
 		Audio.play("hit")
 
-func take_damage(amount: float, from: Vector3) -> void:
+## source — ворог, що б'є (для парирування); для снарядів null.
+func take_damage(amount: float, from: Vector3, source: Node = null) -> void:
 	if dead or _iframes > 0.0:
 		return
+	amount *= Game.difficulty().dmg
 	var to := from - global_position
 	to.y = 0
-	if blocking and to.length() > 0.01 and (-global_transform.basis.z).dot(to.normalized()) > 0.3:
+	var facing := to.length() > 0.01 and (-global_transform.basis.z).dot(to.normalized()) > 0.3
+	if blocking and facing and _block_t <= PARRY_WINDOW:
+		# парирування: без шкоди й витрати витривалості, ворог оглушений
+		Audio.play("block", 1.5)
+		Audio.play("hit", 1.3, -4.0)
+		_block_k = 1.6
+		_shake = max(_shake, 0.25)
+		_iframes = 0.2
+		if source and source.has_method("stun"):
+			source.stun()
+			Game.message.emit("Парирування!")
+		return
+	if blocking and facing:
 		var cost := amount * 0.9
 		if stamina >= cost * 0.5:
 			_use_stamina(cost)
@@ -321,6 +365,7 @@ func take_damage(amount: float, from: Vector3) -> void:
 
 func _die() -> void:
 	dead = true
+	_heal_t = 0.0
 	_vm_layer.visible = false
 	var tw := create_tween()
 	tw.tween_property(head, "position:y", 0.3, 0.8).set_trans(Tween.TRANS_BOUNCE)
@@ -336,9 +381,13 @@ func use_item(id: String) -> bool:
 		if Game.hp >= Game.max_hp():
 			Game.message.emit("Ти й так цілий")
 			return false
-		Game.hp = min(Game.max_hp(), Game.hp + float(it.heal))
-		Audio.play("heal")
-		Game.message.emit("+%d здоров'я" % int(it.heal))
+		if _heal_t > 0.0:
+			return false
+		# лікування займає час: повільний рух, без атак; предмет витрачається в кінці
+		_heal_t = HEAL_TIME
+		_heal_id = id
+		Audio.play("heal", 0.7, -6.0)
+		return true
 	match it.get("buff", ""):
 		"damage":
 			buff_damage = 30.0
@@ -350,6 +399,30 @@ func use_item(id: String) -> bool:
 			Game.message.emit("Втома відступила")
 	Game.remove_item(id)
 	return true
+
+func _finish_heal() -> void:
+	var id := _heal_id
+	_heal_id = ""
+	if dead or Game.count(id) <= 0:
+		return
+	var it := ItemDB.get_item(id)
+	Game.hp = min(Game.max_hp(), Game.hp + float(it.heal))
+	Game.remove_item(id)
+	Audio.play("heal")
+	Game.message.emit("+%d здоров'я" % int(it.heal))
+
+func is_healing() -> bool:
+	return _heal_t > 0.0
+
+## Заряд лука 0..1, або -1, якщо не натягнуто (для прицілу в HUD).
+func bow_charge() -> float:
+	return _charge
+
+## Плавно приглушує смолоскип (k=1 — звичайне світло).
+func set_torch_dim(k: float) -> void:
+	if _torch_base < 0.0:
+		_torch_base = torch.get("_base")
+	create_tween().tween_property(torch, "_base", _torch_base * k, 2.0)
 
 func find_interactable() -> Interactable:
 	var best: Interactable = null
@@ -450,3 +523,8 @@ func _update_viewmodel(delta: float, hv: float) -> void:
 				off_pos += Vector2(0, 80)
 	_vm_main.rotation = rot
 	_vm_off.position = off_pos + Vector2(-bx, by) * 0.6
+	if _heal_t > 0.0:
+		# зброя опущена, поки персонаж лікується
+		var drop := sin(clampf(1.0 - _heal_t / HEAL_TIME, 0.0, 1.0) * PI) * 0.6 + 0.4
+		_vm_main.position.y += 220.0 * drop
+		_vm_off.position.y += 220.0 * drop

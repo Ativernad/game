@@ -35,7 +35,7 @@ func _ready() -> void:
 
 	_cross = Control.new()
 	_place(_cross, 0.5, 0.5, 0, 0, 1, 1)
-	_cross.draw.connect(func(): _cross.draw_circle(Vector2.ZERO, 2.0, Color(0.9, 0.85, 0.7, 0.6)))
+	_cross.draw.connect(_draw_cross)
 	root.add_child(_cross)
 
 	_bars = Control.new()
@@ -115,6 +115,7 @@ func key_name(action: String) -> String:
 func _process(delta: float) -> void:
 	_shown_hp = lerp(_shown_hp, Game.hp, clamp(delta * 4.0, 0.0, 1.0))
 	_bars.queue_redraw()
+	_cross.queue_redraw()
 	if _boss_box.visible:
 		_boss_box.queue_redraw()
 	if player and not player.dead:
@@ -135,6 +136,19 @@ func _process(delta: float) -> void:
 	var low: float = 1.0 - clamp(Game.hp / Game.max_hp() / 0.3, 0.0, 1.0)
 	if low > 0.0:
 		_flash.color.a = max(_flash.color.a, low * (0.12 + 0.08 * sin(Time.get_ticks_msec() * 0.006)))
+
+func _draw_cross() -> void:
+	_cross.draw_circle(Vector2.ZERO, 2.0, Color(0.9, 0.85, 0.7, 0.6))
+	if player == null or player.dead:
+		return
+	var ch := player.bow_charge()
+	if ch >= 0.0:
+		# кільце стискається з натягом; на повному — золоте
+		var full := ch >= 1.0
+		var col := UITheme.GOLD_HI if full else Color(0.9, 0.85, 0.7, 0.35 + 0.4 * ch)
+		_cross.draw_arc(Vector2.ZERO, lerpf(22.0, 7.0, ch), 0.0, TAU, 32, col, 2.0 if full else 1.5)
+	if player.is_healing():
+		_cross.draw_arc(Vector2.ZERO, 12.0, -PI / 2, -PI / 2 + TAU * (1.0 - player._heal_t / Player.HEAL_TIME), 32, Color(0.6, 0.9, 0.5, 0.8), 2.0)
 
 func _draw_bars() -> void:
 	var c := _bars
